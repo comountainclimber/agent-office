@@ -1,0 +1,15 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A pixel-art office that shows live Claude, Codex and Cursor agent sessions and lets you start new ones.",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "mock": "node server/index.mjs --mock",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

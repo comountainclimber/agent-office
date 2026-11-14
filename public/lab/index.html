@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office Lab</title>
+<style>
+  :root { --ink: #f4f4f4; --dim: #9aa0b4; --bg: #0b0b12; --line: #f4f4f4; --hot: #ffd23f; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font: 12px/1.3 ui-monospace, "SF Mono", Menlo, monospace; overflow: hidden; }
+  body { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+  header { display: flex; align-items: stretch; gap: 0; border-bottom: 3px solid var(--line); min-height: 48px; min-width: 0; overflow: hidden; }
+  .brand { padding: 0 14px; display: flex; align-items: center; font-weight: 700; letter-spacing: .12em; border-right: 3px solid var(--line); white-space: nowrap; }
+  nav { display: flex; }
+  nav button { all: unset; cursor: pointer; padding: 0 14px; display: flex; flex-direction: column; justify-content: center; gap: 2px; border-right: 2px solid #33364a; min-width: 132px; }
+  nav button:hover { background: #171827; }
+  nav button:focus-visible { outline: 2px solid var(--hot); outline-offset: -4px; }
+  nav button[aria-selected="true"] { background: var(--ink); color: #0b0b12; }
+  nav .k { font-size: 10px; opacity: .7; letter-spacing: .1em; }
+  nav .n { font-weight: 700; letter-spacing: .08em; }
+  .pitch { flex: 1; min-width: 0; padding: 6px 14px; display: flex; flex-direction: column; justify-content: center; color: var(--dim); }
+  .pitch b { color: var(--ink); font-weight: 600; }
+  .pitch span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tools { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-left: 2px solid #33364a; white-space: nowrap; }
+  .tools a { color: var(--hot); text-decoration: none; }
+  .tools a:hover { text-decoration: underline; }
+  .tools label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--dim); }
+  iframe { width: 100%; height: 100%; border: 0; display: block; background: #000; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">AGENT OFFICE LAB</div>
+  <nav role="tablist" aria-label="Concepts" id="tabs"></nav>
+  <div class="pitch"><span><b id="pitch-title"></b></span><span id="pitch-text"></span></div>
+  <div class="tools">
+    <label><input type="checkbox" id="mock"> demo data</label>
+    <a id="solo" href="#" target="_blank" rel="noopener">open alone ↗</a>
+  </div>
+</header>
+<iframe id="frame" title="Concept"></iframe>
+<script type="module">
+  const CONCEPTS = [
+    { id: 'belt', name: 'BRAWLER OFFICE', path: '../index.html',
+      title: 'Side-on belt-scroll office.',
+      text: 'Big characters you can read from across the room; walk-ins and walk-outs; dialogue box. Most charm, least dense.' },
+    { id: 'floorplan', name: 'FLOOR PLAN', path: './floorplan/index.html',
+      title: 'Top-down map of the whole floor.',
+      text: 'Every desk and meeting room on one screen, like an 8-bit RPG map. Best overview at 20+ agents; smaller characters.' },
+    { id: 'tower', name: 'TOWER', path: './tower/index.html',
+      title: 'Cutaway building, one floor per project.',
+      text: 'Answers "what is happening in which repo". Agents ride the elevator to their project floor; meetings happen in glass rooms.' },
+    { id: 'cctv', name: 'CCTV WALL', path: './cctv/index.html',
+      title: 'Security-camera wall, one feed per session.',
+      text: 'Each tile is a close-up: a lone desk, or a conference room with the boss and crew. Densest; alarms when an agent needs you.' },
+  ];
+  const tabs = document.getElementById('tabs');
+  const frame = document.getElementById('frame');
+  const mock = document.getElementById('mock');
+  const solo = document.getElementById('solo');
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const params = new URLSearchParams(location.search);
+  let current = params.get('c') || store.get('lab.concept', 'belt');
+  mock.checked = params.has('mock') || store.get('lab.mock', '0') === '1';
+
+  CONCEPTS.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.setAttribute('role', 'tab');
+    b.dataset.id = c.id;
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = `CONCEPT ${i + 1}`;
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = c.name;
+    b.append(k, n);
+    b.addEventListener('click', () => show(c.id));
+    tabs.append(b);
+  });
+
+  function show(id) {
+    const c = CONCEPTS.find((x) => x.id === id) || CONCEPTS[0];
+    current = c.id;
+    store.set('lab.concept', c.id);
+    for (const b of tabs.children) b.setAttribute('aria-selected', String(b.dataset.id === c.id));
+    document.getElementById('pitch-title').textContent = c.title;
+    document.getElementById('pitch-text').textContent = c.text;
+    const url = c.path + (mock.checked ? '?mock=1' : '');
+    frame.src = url;
+    solo.href = url;
+  }
+  mock.addEventListener('change', () => { store.set('lab.mock', mock.checked ? '1' : '0'); show(current); });
+  addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea')) return;
+    const n = Number(e.key);
+    if (n >= 1 && n <= CONCEPTS.length) show(CONCEPTS[n - 1].id);
+  });
+  show(current);
+</script>
+</body>
+</html>

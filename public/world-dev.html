@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office — world harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #16101e; overflow: hidden; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #f4ecd8; }
+  #office { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; image-rendering: pixelated; }
+  #dbg { position: fixed; right: 8px; top: 8px; z-index: 5; background: rgba(22, 16, 30, 0.88); border: 2px solid #f4ecd8; padding: 6px 8px; max-width: 250px; }
+  #dbg.min > :not(.row0) { display: none; }
+  #dbg button, #dbg select { font: inherit; color: #16101e; background: #fcd820; border: 2px solid #16101e; padding: 2px 6px; margin: 2px 2px 2px 0; cursor: pointer; }
+  #dbg button.on { background: #38b428; color: #fff; }
+  #dbg pre { margin: 6px 0 0; white-space: pre-wrap; font: inherit; color: #b8b4c8; }
+  #face { display: block; width: 96px; height: 96px; image-rendering: pixelated; margin-top: 6px; border: 2px solid #f4ecd8; }
+  .hud { position: fixed; left: 0; right: 0; background: rgba(22, 16, 30, 0.82); border: 0 solid #fcd820; pointer-events: none; display: none; z-index: 2; }
+  .hud.top { top: 0; height: 56px; border-bottom-width: 2px; }
+  .hud.bottom { bottom: 0; height: 64px; border-top-width: 2px; }
+  body.hud-on .hud { display: block; }
+  /* stands in for the shell's opened dialogue (164px), which slides over the office */
+  .dlg { position: fixed; left: 8px; right: 8px; bottom: 0; height: 164px; background: rgba(22, 16, 30, 0.9); border: 2px solid #38b428; pointer-events: none; display: none; z-index: 3; }
+  body.dlg-on .dlg { display: block; }
+</style>
+</head>
+<body>
+<canvas id="office"></canvas>
+<div class="hud top"></div>
+<div class="hud bottom"></div>
+<div class="dlg"></div>
+<div id="dbg">
+  <div class="row0">
+    <button id="b-min" title="collapse">_</button>
+    <select id="scenario">
+      <option value="mock">mock (14)</option>
+      <option value="empty">0 sessions</option>
+      <option value="one">1 session</option>
+      <option value="three">3 sessions</option>
+      <option value="few">few (?few=N)</option>
+      <option value="stress">stress (40)</option>
+      <option value="nine">boss + 9 helpers</option>
+    </select>
+  </div>
+  <div>
+    <button id="b-add">+ session</button>
+    <button id="b-speed">speed x1</button>
+    <button id="b-hud">insets</button>
+    <button id="b-still">reduced motion</button>
+    <button id="b-burst" title="ten sessions arrive in one update">+10 at once</button>
+    <button id="b-regroup" title="move a random session to another group">regroup</button>
+    <button id="b-hi" title="cycle highlightGroup() through the groups">highlight</button>
+    <button id="b-dlg" title="setOverlay({bottom}) like the opened dialogue: 164px, then 40% of the window, then closed">dialogue</button>
+    <button id="b-un" title="mark every idle session as session.unanswered (the quiet, steady !)">unanswered</button>
+  </div>
+  <canvas id="face" width="96" height="96"></canvas>
+  <pre id="info"></pre>
+</div>
+<!--
+  World harness. URL switches (combine freely):
+    ?scenario=mock|empty|one|three|few|stress|nine   (&few=N: the first N mock sessions; &n=, &groups= for stress)
+    ?shell=1      fit the office around what the shell leaves free with its roster open (dev.SHELL)
+    ?hud=1        the older top/bottom bars; ?min=1 collapses this panel
+    ?visible=1 / ?hidden=1 / ?hideable=1   what document.hidden reports (dev.hide(bool) flips it)
+    ?throttle=N   animation frames N times a second; ?timers=MS: no timer sooner than MS
+    ?clock=manual performance.now() stands still until dev.step(ms); ?nofeed=1: no state once a second (dev.feed())
+    ?freeze=1&t=S pin the mock clock; ?speed=N; ?unanswered=1; ?wire=1; ?shots=URL (dev.shot)
+  Console: office, mock, dev.{feed, step, freeze, warp, custom, setScenario, select, setDlg, setHighlight, hide,
+  unanswered, snap, zoom, look, shot} and
+    dev.soak(seconds, opts)   the "does furniture move by itself" check: see the comment above soak() below.
+                              Target: violations === 0 for dev.soak(300) at 1440x900 and 1280x720.
+-->
+<script type="module">
+import { createOffice, drawPortrait } from './js/world/index.js';
+import { createMock } from './js/mock-state.js';
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('office');
+const q = new URLSearchParams(location.search);
+const INSETS = { top: 56, right: 0, bottom: 64, left: 0 };
+// what the shell leaves free with its roster open (?shell=1 fits the office around that; dev.soak uses it too)
+const SHELL = { top: 52, right: 0, bottom: 68, left: 264 };
+
+// ?visible=1: pretend the page is visible. A pane that is not in front reports document.hidden, and the
+// world then skips its glides and repaints rarely; with this the transitions can be stepped and looked at.
+if (q.get('visible') === '1') Object.defineProperty(document, 'hidden', { get: () => false });
+// ?hidden=1: the opposite, a page that reports itself hidden (no animation frames are asked for at all).
+// dev.hide(true|false) switches it while running.
+let fakeHidden = q.get('hidden') === '1';
+if (fakeHidden || q.get('hideable') === '1') Object.defineProperty(document, 'hidden', { get: () => fakeHidden, configurable: true });
+// ?throttle=N: animation frames arrive N times a second (a throttled pane); ?timers=MS: no timer fires sooner
+// than MS (a background tab clamps them to a second). Together they stand in for the worst case.
+if (q.get('throttle')) {
+  const fps = Math.max(0.1, +q.get('throttle'));
+  const st = window.setTimeout.bind(window);
+  window.requestAnimationFrame = (cb) => st(() => cb(performance.now()), 1000 / fps);
+  window.cancelAnimationFrame = (id) => clearTimeout(id);
+}
+// ?clock=manual: performance.now() stands still until dev.step(ms) moves it, so a transition that runs on
+// the real clock (a glide between scales, desks being carried, rooms closing ranks) can be looked at
+// one instant at a time, also in a pane that delivers no frames.
+let manualClock = null;
+if (q.get('clock') === 'manual') {
+  let fake = performance.now();
+  performance.now = () => fake;
+  manualClock = { add(ms) { fake += ms; } };
+}
+if (q.get('timers')) {
+  const min = +q.get('timers');
+  const st = window.setTimeout.bind(window);
+  window.setTimeout = (fn, ms, ...rest) => st(fn, Math.max(min, ms || 0), ...rest);
+}
+let hud = q.get('hud') === '1';
+document.body.classList.toggle('hud-on', hud);
+const office = createOffice(canvas, { insets: q.get('shell') === '1' ? SHELL : hud ? INSETS : undefined });
+
+// ---- virtual clock: real time times `speed`
+const realStart = Date.now();
+let speed = +(q.get('speed') || 1);
+let vnow = realStart + (+(q.get('t') || 0)) * 1000;
+if (q.get('freeze') === '1') speed = 0;
+let lastReal = realStart;
+function tick() {
+  const r = Date.now();
+  vnow += (r - lastReal) * speed;
+  lastReal = r;
+  return vnow;
+}
+
+const mock = createMock(realStart);
+let scenario = q.get('scenario') || 'mock';
+let lastState = null;
+let selected = null;
+
+// ---- 40-session stress state (time-evolving, deterministic)
+const TOOLS = ['claude', 'codex', 'cursor'];
+const NAMES = ['ABBY', 'BRICK', 'COCO', 'DIZ', 'ECHO', 'FINN', 'GIGI', 'HOBBS', 'INDY', 'JAX', 'KIKI', 'LARS', 'MIMI', 'NICO', 'OPAL', 'PUCK', 'QUIN', 'RUFUS', 'SUKI', 'TOBY', 'UMA', 'VIC', 'WANDA', 'XENA', 'YOYO', 'ZIGGY', 'ALDO', 'BEA', 'CRUZ', 'DOT', 'EZRA', 'FERN', 'GOMEZ', 'HAZEL', 'IGGY', 'JOJO', 'KNOX', 'LULU', 'MACK', 'NORA'];
+const PROJ = ['graph', 'customer-ui', 'monolith', 'big-tests', 'ios', 'analytics', 'deploy', 'auth', 'graph-gateway', 'shop'];
+const KINDS = ['thinking', 'reading', 'editing', 'running', 'searching', 'browsing', 'writing'];
+const SUBN = ['PIP', 'DOT', 'BOLT', 'NIB', 'ACE', 'KIT', 'TAD', 'REX', 'IVY', 'LOU', 'MO', 'ZIP', 'GUS'];
+const SUBCOUNT = [1, 2, 3, 5, 8, 10, 13];
+const GCOL = ['gold', 'sky', 'rose', 'lime', 'plum', 'sand'];
+const GNAME = ['Checkout', 'iOS app', 'Cleanup', 'Release pipeline', 'Design system', 'Research'];
+function stressState(now, n = 40) {
+  const tsec = (now - realStart) / 1000;
+  const ng = Math.max(0, Math.min(6, +(q.get('groups') ?? 4)));
+  const groups = [];
+  for (let k = 0; k < ng; k++) groups.push({ id: `sg-${k}`, name: GNAME[k], color: GCOL[k], autoDirs: [], order: k + 1 });
+  const sessions = [];
+  for (let i = 0; i < n; i++) {
+    const tool = TOOLS[i % 3];
+    const orch = i < 7;
+    const idle = i >= 7 && i < 13;
+    const f = ((tsec + i * 11) % (60 + i * 3)) / (60 + i * 3);
+    const status = idle ? 'idle' : orch ? 'working' : f < 0.7 ? 'working' : 'waiting';
+    const subs = [];
+    if (orch) {
+      for (let j = 0; j < SUBCOUNT[i]; j++) {
+        const sf = ((tsec + j * 7 + i * 5) % 50) / 50;
+        const st = (i === 3 && j === 1) ? 'failed' : sf < 0.6 ? 'working' : 'done';
+        subs.push({ id: `s${j}`, name: SUBN[(i + j) % SUBN.length], label: 'Subtask ' + (j + 1), agentType: 'general-purpose', status: st, activity: { kind: KINDS[(j + Math.floor(tsec / 4)) % KINDS.length], label: 'Working' }, startedAt: now - 60000, lastActivityAt: now });
+      }
+    }
+    sessions.push({
+      id: `${tool}:stress-${i}`, tool, nativeId: `stress-${i}`, name: NAMES[i % NAMES.length], title: 'Stress task number ' + (i + 1) + ' with a fairly long title',
+      cwd: '/Users/dev/projects/' + PROJ[i % PROJ.length], project: PROJ[i % PROJ.length], status, mode: orch ? 'orchestrator' : 'solo', turnState: status === 'working' ? 'mid' : 'ended',
+      startedAt: now - 600000, lastActivityAt: now,
+      activity: status === 'working' ? (orch ? { kind: 'delegating', label: 'Running agents' } : { kind: KINDS[(i + Math.floor(tsec / 5)) % KINDS.length], label: 'Working' }) : { kind: status, label: status },
+      lastMessage: 'Stress test message.', subagents: subs,
+      ...(ng && (i * 7) % (ng + 2) < ng ? { groupId: `sg-${(i * 7) % (ng + 2)}` } : {}),
+      ...(i % 5 === 2 ? { label: ['Cart totals port', 'Token log leak', 'Tier meter', 'Wallet sheet polish'][i % 4] } : {}),
+    });
+  }
+  return { now, sessions, tasks: [], tools: {}, recentDirs: [], groups, mock: true };
+}
+
+let custom = null; // dev.custom(fn): feed hand-made states instead of a scenario
+let unanswered = q.get('unanswered') === '1'; // what the shell does: flag idle sessions whose turn ended unseen
+function currentState() {
+  const st = rawState();
+  if (unanswered) for (const x of st.sessions) if (x.status === 'idle') x.unanswered = true;
+  return st;
+}
+function nineState(now) {
+  const s = stressState(now, 9);
+  const boss = s.sessions[0];
+  boss.subagents = [];
+  for (let j = 0; j < 9; j++) boss.subagents.push({ id: `n${j}`, name: SUBN[j], label: 'Subtask ' + (j + 1), agentType: 'general-purpose', status: j < 5 ? 'done' : j === 5 ? 'failed' : 'working', activity: { kind: KINDS[j % KINDS.length], label: 'Working' }, startedAt: now - 60000, lastActivityAt: now });
+  s.sessions = [boss, s.sessions[7], s.sessions[8]];
+  return s;
+}
+function rawState() {
+  const now = tick();
+  if (custom) return custom(now);
+  if (scenario === 'nine') return nineState(now);
+  if (scenario === 'empty') return { now, sessions: [], tasks: [], tools: {}, recentDirs: [], groups: [], mock: true };
+  if (scenario === 'one') { const s = mock.next(now); s.sessions = s.sessions.slice(1, 2); return s; }
+  if (scenario === 'three') { const s = mock.next(now); s.sessions = s.sessions.slice(1, 4); return s; }
+  // ?scenario=few&few=N: the first N mock sessions after the first (a quiet office)
+  if (scenario === 'few') { const s = mock.next(now); s.sessions = s.sessions.slice(1, 1 + Math.max(0, +(q.get('few') || 2))); return s; }
+  if (scenario === 'stress') return stressState(now, +(q.get('n') || 40));
+  return mock.next(now);
+}
+
+function feed() {
+  lastState = currentState();
+  office.setState(lastState);
+  paintInfo();
+}
+
+function findSel() {
+  if (!selected || !lastState) return [null, null];
+  const [sid, sub] = selected.split('#');
+  const s = lastState.sessions.find((x) => x.id === sid);
+  if (!s) return [null, null];
+  return [s, sub ? (s.subagents || []).find((x) => String(x.id) === sub) || null : null];
+}
+
+function paintInfo() {
+  const i = office.getInfo();
+  const [s, sub] = findSel();
+  const face = $('face');
+  if (s) drawPortrait(face, s, sub || undefined); else face.getContext('2d').clearRect(0, 0, 96, 96);
+  const c = { working: 0, waiting: 0, idle: 0 };
+  let orch = 0; let subs = 0;
+  for (const x of (lastState ? lastState.sessions : [])) { c[x.status]++; if (x.mode === 'orchestrator') orch++; subs += (x.subagents || []).length; }
+  $('info').textContent =
+    `scale ${i.scale} (css x${i.cssScale}) dpr ${i.dpr}\nworld ${i.world.w}x${i.world.h} rows ${i.world.rows} cols ${i.world.cols} rooms ${i.world.rooms}\n` +
+    `view ${i.viewport.usableW}x${i.viewport.usableH} pan ${i.camera.panX ? 'x' : ''}${i.camera.panY ? 'y' : ''}${!i.camera.panX && !i.camera.panY ? 'no' : ''}\n` +
+    `sessions ${i.sessions} (w${c.working} !${c.waiting} z${c.idle}) orch ${orch} subs ${subs}\nactors ${i.actors} walking ${i.walking} clock ${i.clock.toFixed(1)}  frame ${i.frameMs}ms\n` +
+    `pods ${i.pods.map((p) => `${p.name || 'DESKS'}:${p.members}`).join(' ')}\nhighlight ${i.highlight || '-'}\n` +
+    `selected ${selected || '-'}` + (s ? `\n${s.name} ${s.status}/${s.mode}${sub ? ' > ' + (sub.name || sub.id) + ' ' + sub.status : ''}` : '');
+}
+
+office.onSelect((id) => { selected = id; office.select(id); paintInfo(); });
+// pod signs: with ?wire=1 the harness plays the shell (toggle the highlight); without it the world toggles by itself
+let highlighted = null;
+function setHighlight(g) { highlighted = g; office.highlightGroup(g); paintInfo(); }
+if (q.get('wire') === '1') office.onGroupSelect((g) => setHighlight(highlighted === g ? null : g));
+
+$('scenario').value = scenario;
+$('scenario').onchange = (e) => { scenario = e.target.value; feed(); };
+$('b-add').onclick = () => {
+  const tool = TOOLS[Math.floor(Math.random() * 3)];
+  const id = mock.add({ tool, prompt: 'A task started from the harness', cwd: '/Users/dev/projects/shop/' + PROJ[Math.floor(Math.random() * PROJ.length)] });
+  if (scenario !== 'mock') { scenario = 'mock'; $('scenario').value = 'mock'; }
+  feed();
+  selected = id; office.select(id);
+};
+const SPEEDS = [1, 4, 16];
+function setSpeed(n) { tick(); speed = n; office.setTimeScale(n); $('b-speed').textContent = 'speed x' + n; $('b-speed').classList.toggle('on', n > 1); }
+$('b-speed').onclick = () => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]);
+$('b-hud').onclick = () => { hud = !hud; document.body.classList.toggle('hud-on', hud); office.setInsets(hud ? INSETS : {}); $('b-hud').classList.toggle('on', hud); paintInfo(); };
+let stillOn = false;
+$('b-still').onclick = () => { stillOn = !stillOn; office.setReducedMotion(stillOn ? true : null); $('b-still').classList.toggle('on', stillOn); };
+$('b-burst').onclick = () => {
+  for (let k = 0; k < 10; k++) mock.add({ tool: TOOLS[k % 3], prompt: 'Burst task ' + (k + 1), cwd: '/Users/dev/projects/shop/' + PROJ[k % PROJ.length], ...(k % 3 === 0 ? { groupId: 'g-checkout' } : {}) });
+  if (scenario !== 'mock') { scenario = 'mock'; $('scenario').value = 'mock'; }
+  feed();
+};
+$('b-regroup').onclick = () => {
+  if (scenario !== 'mock' || !lastState) return;
+  const s = lastState.sessions[Math.floor(Math.random() * lastState.sessions.length)];
+  const opts = [...lastState.groups.map((g) => g.id), 'none'].filter((g) => g !== (s.groupId || 'none'));
+  mock.setMeta(s.id, { groupId: opts[Math.floor(Math.random() * opts.length)] });
+  feed();
+  selected = s.id; office.select(s.id);
+};
+$('b-hi').onclick = () => {
+  const ids = [null, ...(lastState ? lastState.groups.map((g) => g.id) : []), 'none'];
+  setHighlight(ids[(ids.indexOf(highlighted) + 1) % ids.length]);
+};
+// the opened dialogue: closed -> 164px -> 40% of the window (a long message) -> closed
+let dlgH = 0;
+function setDlg(h) {
+  dlgH = Math.max(0, Math.round(h || 0));
+  document.body.classList.toggle('dlg-on', dlgH > 0);
+  document.querySelector('.dlg').style.height = dlgH + 'px';
+  office.setOverlay({ bottom: dlgH ? Math.max(0, dlgH - (hud ? 64 : 0)) : 0, right: 0 });
+  $('b-dlg').classList.toggle('on', dlgH > 0);
+  $('b-dlg').textContent = dlgH ? `dialogue ${dlgH}` : 'dialogue';
+}
+$('b-dlg').onclick = () => setDlg(dlgH === 0 ? 164 : dlgH === 164 ? Math.round(innerHeight * 0.4) : 0);
+$('b-un').onclick = () => { unanswered = !unanswered; $('b-un').classList.toggle('on', unanswered); feed(); };
+$('b-un').classList.toggle('on', unanswered);
+$('b-min').onclick = () => $('dbg').classList.toggle('min');
+$('b-hud').classList.toggle('on', hud);
+if (q.get('min') === '1') $('dbg').classList.add('min');
+
+// ---- soak check: does furniture move when the user did nothing?
+// dev.soak(seconds, opts) runs a FRESH office (its own hidden canvas, the size of this window) through a fresh
+// mock, one state a second like the server sends them, and after every step notes where every pod sign, desk,
+// seated owner, meeting room and the office's corner stand (getInfo(): CSS px, at rest). Any of them standing
+// somewhere else than a step earlier is a move. A move is excused only when a group changed in that step
+// (a session's groupId, or the group list) or the world says it re-planned for the window ('viewport');
+// moves the world made after quiet minutes of lower demand ('quiet') are counted apart. Everything else is a
+// violation. Nothing here waits for frames or timers, so it runs the same in a throttled or hidden pane.
+//   opts.insets   chrome to fit around (default: the shell with its roster open, dev.SHELL)
+//   opts.churn    n > 0: on top of the mock, a seeded stream of sessions arriving, leaving, starting and ending
+//                 meetings (about n events a minute)
+//   opts.regroup  seconds between forced group changes (0 = none): these must be excused, not counted
+//   opts.step     seconds per step (default 1)
+// Returns { seconds, steps, violations, quiet, excused, moved (things moved in violation), events: [...] }.
+function soak(seconds = 300, opts = {}) {
+  const step = opts.step || 1;
+  const cv = document.createElement('canvas');
+  cv.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;visibility:hidden;pointer-events:none';
+  document.body.appendChild(cv);
+  const o = createOffice(cv, { insets: opts.insets || SHELL });
+  const t0 = 1_800_000_000_000;
+  const m = createMock(t0);
+  let seed = opts.seed || 7;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const extra = []; // churn sessions: { id, from, to, orchFrom, orchTo, idle }
+  const snap = () => {
+    const i = o.getInfo();
+    const pos = new Map();
+    pos.set('origin', [i.origin.x, i.origin.y]);
+    for (const p of i.pods) {
+      pos.set(`pod:${p.groupId}`, [p.rect.x, p.rect.y]);
+      for (const d of p.seats) {
+        pos.set(`desk:${p.groupId}/${d.i}`, [d.x, d.y]);
+        if (d.owner) pos.set(`seat:${d.owner}@${p.groupId}`, [d.x, d.y]);
+      }
+    }
+    for (const r of i.rooms) if (r.owner) pos.set(`room:${r.owner}`, [r.x, r.y]);
+    return { pos, i };
+  };
+  // what the user can change about groups: the list itself, and which group each session is in
+  const groupsOf = (st) => ({ list: st.groups.map((g) => `${g.id}:${g.order}`).join('|'), of: new Map(st.sessions.map((s) => [s.id, s.groupId || ''])) });
+  const regrouped = (a, b) => { if (a.list !== b.list) return true; for (const [id, g] of b.of) if (a.of.has(id) && a.of.get(id) !== g) return true; return false; };
+  const events = [];
+  let prev = null;
+  let prevG = null;
+  let prevIds = '';
+  let lastRegroup = 0;
+  const inf0 = { scale: 0 };
+  for (let k = 0; k <= seconds; k += step) {
+    const now = t0 + k * 1000;
+    if (opts.churn && rnd() < (opts.churn / 60) * step) {
+      const r = rnd();
+      if (r < 0.45 || extra.length < 2) {
+        const id = m.add({ tool: TOOLS[Math.floor(rnd() * 3)], prompt: 'Churn task', cwd: '/Users/dev/projects/shop/' + PROJ[Math.floor(rnd() * PROJ.length)], name: NAMES[extra.length % NAMES.length] });
+        extra.push({ id, orch: false, gone: false, born: k });
+      } else {
+        const e = extra[Math.floor(rnd() * extra.length)];
+        if (r < 0.7) e.gone = true; else e.orch = !e.orch;
+      }
+    }
+    const st = m.next(now);
+    if (opts.churn) {
+      // (mock.add stamps real time: churn sessions simply exist from the step they were added in)
+      for (const e of extra) {
+        if (st.sessions.some((s) => s.id === e.id)) continue;
+        st.sessions.push({ id: e.id, tool: e.id.split(':')[0], nativeId: e.id.split(':')[1], name: NAMES[extra.indexOf(e) % NAMES.length], title: 'Churn task', cwd: '/x', project: PROJ[extra.indexOf(e) % PROJ.length], status: 'working', mode: 'solo', turnState: 'mid', startedAt: now, lastActivityAt: now, activity: { kind: 'editing', label: 'Edit' }, subagents: [] });
+      }
+      st.sessions = st.sessions.filter((s) => { const e = extra.find((x) => x.id === s.id); return !e || !e.gone; });
+      for (const s of st.sessions) {
+        const e = extra.find((x) => x.id === s.id);
+        if (e && e.orch) { s.mode = 'orchestrator'; s.status = 'working'; s.subagents = [0, 1, 2].map((j) => ({ id: `c${j}`, name: SUBN[j], label: 'Sub', agentType: 'general-purpose', status: 'working', activity: { kind: 'reading', label: 'Read' }, startedAt: now, lastActivityAt: now })); }
+      }
+    }
+    if (opts.regroup && k - lastRegroup >= opts.regroup && st.sessions.length) {
+      lastRegroup = k;
+      const s = st.sessions[Math.floor(rnd() * st.sessions.length)];
+      const choice = [...st.groups.map((g) => g.id), 'none'].filter((g) => g !== (s.groupId || 'none'));
+      m.setMeta(s.id, { groupId: choice[Math.floor(rnd() * choice.length)] });
+      const again = m.next(now);
+      for (const x of st.sessions) { const y = again.sessions.find((z) => z.id === x.id); if (y) { if (y.groupId) x.groupId = y.groupId; else delete x.groupId; } }
+    }
+    o.setState(st);
+    o.advance(step);
+    const cur = snap();
+    const gk = groupsOf(st);
+    const ids = st.sessions.map((s) => `${s.id}:${s.status}:${s.mode}`).sort().join('|');
+    if (prev) {
+      const moved = [];
+      for (const [key, p] of cur.pos) {
+        const q = prev.pos.get(key);
+        if (q && (Math.abs(q[0] - p[0]) > 0.01 || Math.abs(q[1] - p[1]) > 0.01)) moved.push({ key, dx: +(p[0] - q[0]).toFixed(1), dy: +(p[1] - q[1]).toFixed(1) });
+      }
+      if (moved.length) {
+        const cause = cur.i.layout && cur.i.layout.rev !== prev.i.layout.rev ? cur.i.layout.cause : (cur.i.layout ? 'none' : 'unknown');
+        const grouped = regrouped(prevG, gk);
+        const kind = grouped || cause === 'group' || cause === 'viewport' ? 'excused' : cause === 'quiet' ? 'quiet' : 'violation';
+        let far = moved[0];
+        for (const mv of moved) if (Math.hypot(mv.dx, mv.dy) > Math.hypot(far.dx, far.dy)) far = mv;
+        events.push({ t: k, kind, cause, moved: moved.length, far, scale: `${prev.i.cssScale}>${cur.i.cssScale}`, sessions: st.sessions.length, news: ids !== prevIds, sample: moved.slice(0, 4).map((mv) => `${mv.key} ${mv.dx},${mv.dy}`) });
+      }
+    } else Object.assign(inf0, { scale: cur.i.cssScale, world: cur.i.world, panning: cur.i.panning });
+    prev = cur; prevG = gk; prevIds = ids;
+  }
+  const last = prev.i;
+  o.destroy();
+  cv.remove();
+  const count = (kind) => events.filter((e) => e.kind === kind).length;
+  return {
+    seconds, steps: Math.floor(seconds / step) + 1, viewport: `${innerWidth}x${innerHeight}`, violations: count('violation'), quiet: count('quiet'), excused: count('excused'),
+    moved: events.filter((e) => e.kind === 'violation').reduce((n, e) => n + e.moved, 0),
+    start: inf0, end: { scale: last.cssScale, world: last.world, panning: last.panning, pods: last.pods.map((p) => `${p.name || 'DESKS'}:${p.members}/${p.desks}`).join(' ') },
+    events,
+  };
+}
+
+if (speed > 0) setSpeed(speed);
+feed();
+// ?nofeed=1: no state once a second (call dev.feed() by hand), so frames can be made to come seconds apart
+if (q.get('nofeed') !== '1') setInterval(feed, 1000);
+
+// handles for poking at it from the console
+Object.assign(window, { office, mock, dev: { feed, setSpeed, setHighlight, setDlg,
+  // with ?clock=manual: move the clock on by `ms` and draw that instant
+  step(ms = 16) { if (manualClock) manualClock.add(ms); office.advance((ms / 1000) * Math.max(1, speed)); },
+  // flip what document.hidden reports (needs ?hidden=1 or ?hideable=1) and tell the page
+  hide(on = true) { fakeHidden = !!on; document.dispatchEvent(new Event('visibilitychange')); },
+  unanswered(on = true) { unanswered = !!on; $('b-un').classList.toggle('on', unanswered); feed(); },
+  custom(fn) { custom = fn || null; feed(); }, setScenario(v) { scenario = v; $('scenario').value = v; feed(); }, state: () => lastState, select(id) { selected = id; office.select(id); paintInfo(); },
+  // pin the mock clock at `sec` seconds after start (animation keeps running); dev.freeze() releases it
+  freeze(sec) { tick(); if (sec == null) { speed = 1; return; } vnow = realStart + sec * 1000; speed = 0; feed(); office.advance(60); feed(); office.advance(30); },
+  // jump the mock clock forward and let everyone finish walking
+  warp(sec = 30) { tick(); vnow += sec * 1000; feed(); office.advance(60); feed(); office.advance(30); },
+  // keep a copy of what the canvas shows right now on top of it (to look at one instant of a transition); dev.snap(false) removes it
+  snap(on = true) {
+    let c = document.getElementById('snap');
+    if (!on) { if (c) c.remove(); return; }
+    if (!c) { c = document.createElement('canvas'); c.id = 'snap'; c.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;image-rendering:pixelated;z-index:1;pointer-events:none'; document.body.appendChild(c); }
+    c.width = canvas.width; c.height = canvas.height;
+    c.style.transform = canvas.style.transform; c.style.transformOrigin = canvas.style.transformOrigin;
+    c.getContext('2d').drawImage(canvas, 0, 0);
+  },
+  // magnify the canvas with CSS for close inspection: dev.zoom(3, 200, 300); dev.zoom() resets
+  zoom(k, x = 0, y = 0) { canvas.style.transformOrigin = `${x}px ${y}px`; canvas.style.transform = k ? `scale(${k})` : ''; },
+  // POST a PNG of part of the canvas (CSS px; k = output px per CSS px) to the receiver named by ?shots=URL.
+  // For looking at the office when the pane it runs in is not being displayed (no screenshots there).
+  async shot(name, x = 0, y = 0, w = innerWidth, h = innerHeight, k = 1) {
+    const to = q.get('shots');
+    if (!to) return 'no ?shots= receiver';
+    const d = canvas.width / canvas.clientWidth;
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * k); c.height = Math.round(h * k);
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = k * 1 < d ? true : false;
+    g.drawImage(canvas, x * d, y * d, w * d, h * d, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+    await fetch(`${to}/${name}.png`, { method: 'POST', mode: 'no-cors', body: blob });
+    return `${name}.png ${c.width}x${c.height}`;
+  },
+  soak, SHELL,
+  // centre the window on CSS point (cx, cy) of the canvas, magnified k times: dev.look(700, 450, 3); dev.look() resets
+  look(cx, cy, k = 2) { canvas.style.transformOrigin = '0 0'; canvas.style.transform = cx == null ? '' : `translate(${innerWidth / 2 - cx * k}px, ${innerHeight / 2 - cy * k}px) scale(${k})`; } } });
+</script>
+</body>
+</html>

@@ -1,0 +1,508 @@
+/* Agent Office — chrome v2.
+   The shell around the conversation: top bar, roster, tasks tray, task output, toasts, NEW TASK, sound menu,
+   group menus, help. Loaded after style.css; everything here either styles a new class or tightens an old rule.
+   (The dialogue, the reply field and the transcript live in style.css, "dialogue v2".)
+
+   Colour rules (server/contract.mjs): bright yellow = "needs you" and nothing else; selection = white + a shape;
+   keyboard focus = a white ring; tool identity = coral / mint / violet; red = failure. */
+
+:root { --focus: #fcfcfc; --white-deep: #8e8ea6; }
+
+/* ================================================================== focus + selection are white */
+
+#office:focus, #office:focus-visible { outline: none; } /* the office takes the keyboard when a dialogue closes; it needs no ring */
+
+/* every primary button is white on black (.btn-primary in style.css): yellow is kept for "needs you" */
+
+.tasks-toggle:hover .tasks-chev { color: var(--paper); }
+.bulk-go:not(:disabled):hover, .task-retry:hover:not(:disabled) { background: #fff; }
+.tb-conn[data-conn='demo'] { color: var(--grey); }
+/* the demo marker: grey tape, not yellow */
+.ribbon { border-image: repeating-linear-gradient(-45deg, var(--grey) 0 6px, #000 6px 12px) 2; }
+.ribbon-tag { color: #000; background: var(--grey); }
+
+/* ================================================================== top bar */
+
+/* numbers sit in two-digit slots; badges are corner tags that take no room: a changing count moves nothing */
+.tb-count { display: inline-block; min-width: 2ch; text-align: left; }
+.tb-need { position: relative; }
+.tb-need:disabled { cursor: default; }
+/* steady yellow while someone needs you; it only flashes for a few seconds when the count goes up */
+.tb-need.is-hot.is-new { animation: hot 1s steps(1) 5; }
+/* "+2 OLDER": a tag on the button's lower edge */
+.tb-older {
+  position: absolute; right: 6px; bottom: -8px;
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 2px 2px 1px 4px;
+  font: 8px/1 var(--px);
+  color: var(--need); background: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--need-deep), 0 0 0 2px var(--ink);
+  white-space: nowrap;
+  animation: none;
+}
+.tb-older.is-none { display: none; }
+.tb-need.is-zero { opacity: 1; color: var(--dim); }
+.tb-need.is-zero:disabled { opacity: 0.6; }
+
+/* group chips: the count has its slot, the "!" is a corner pip that takes no room.
+   Spotlighted, the count's slot holds the edit button instead: exactly as wide (gap + two digits), so
+   picking a chip never moves the chips after it. */
+#topbar { --chip-gap: 6px; }
+.gchip-wrap { position: relative; }
+.gchip { gap: var(--chip-gap); }
+.gchip-name { max-width: 12ch; }
+.gchip-count { display: inline-block; min-width: 2ch; text-align: left; }
+.gchip-edit { width: calc(2ch + var(--chip-gap)); font: 10px/1 var(--px); }
+.gchip-need {
+  position: absolute; top: -8px; right: -6px;
+  margin: 0; padding: 2px 1px 1px 3px;
+  font: 8px/1 var(--px);
+  color: #000; background: var(--need);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.gchip-need[data-kind='none'] { display: none; }
+.gchip-need[data-kind='older'] { color: var(--need); background: var(--ink); box-shadow: inset 0 0 0 1px var(--need-deep), 0 0 0 2px var(--ink); }
+
+/* the clock: small (HH:MM), and only where there is a wide bar to put it in */
+@media (max-width: 1439px) { .tb-clock { display: none; } }
+
+/* sound: one button, the same width whatever it says */
+.tb-sound { width: 92px; height: 28px; padding: 0 8px; justify-content: flex-start; gap: 8px; }
+.tb-sound-text { display: inline-flex; gap: 0; }
+.tb-sound-text > :first-child { display: none; }
+.tb-sound-level { display: inline-block; min-width: 4ch; text-align: left; }
+.tb-sound[data-level='off'] { color: var(--dim); border-color: var(--line); }
+.tb-sound[aria-expanded='true'] { background: var(--paper); color: var(--ink); }
+
+/* Narrow windows: what goes (SOFT then HARD in ui/topbar.js; group chips fold into "+n" between the two).
+   Kept longest first: NEEDS YOU · NEW TASK · status counts · tool counts · sound · group chips · clock · title text.
+   NEEDS YOU, NEW TASK and the WORKING / IDLE labels never go. */
+#topbar.tf-blurb .ribbon-text { display: none; }
+#topbar.tf-blurb .ribbon { padding-right: 3px; }
+#topbar.tf-title .tb-title-text { display: none; }
+#topbar.tf-clock .tb-clock { display: none; }
+#topbar.tf-tight { gap: 10px; padding: 0 8px; --chip-gap: 5px; }
+#topbar.tf-tight .tb-tools, #topbar.tf-tight .tb-stats, #topbar.tf-tight .tb-chips { padding-left: 10px; }
+#topbar.tf-tight .tb-group { gap: 8px; }
+#topbar.tf-tight .tb-stats { gap: 10px; }
+#topbar.tf-tight .tb-chips, #topbar.tf-tight .tb-chiplist { gap: 4px; }
+#topbar.tf-tight .tb-tool { gap: 4px; }
+#topbar.tf-tight .tb-new kbd, #topbar.tf-tight .tb-need kbd { display: none; }
+#topbar.tf-tight .tb-need { padding: 7px 6px 6px; }
+#topbar.tf-tight .tb-title { gap: 8px; font-size: 12px; }
+#topbar.tf-tight .gchip { padding: 1px 5px 0 5px; }
+#topbar.tf-snd .tb-sound { width: 36px; padding: 0; justify-content: center; }
+#topbar.tf-snd .tb-sound-text { display: none; }
+#topbar.tf-conn .tb-conn-label { display: none; }
+/* the per-tool counts lose their badges and keep their colours; only a bar with no room at all loses the counts */
+#topbar.tf-tools .tb-tools { gap: 2px; }
+#topbar.tf-tools .tb-tool .badge { display: none; }
+#topbar.tf-notools .tb-tools { display: none; }
+
+/* ================================================================== roster */
+
+/* calm rows: nothing animates on a row; the fresh "!" may blink, the older one is steady and dim */
+#roster .glyph[data-status='working']::before { animation: none; box-shadow: 4px 0 currentColor, 8px 0 currentColor; }
+.glyph[data-status='waiting'][data-quiet] { color: var(--need-deep); animation: none; }
+
+/* selection: white plus a shape (the name turns into a white tag); focus: a white ring */
+.row[aria-current] { background: var(--ink-3); }
+.row[aria-current] .row-name { color: #000; background: var(--paper); padding: 3px 3px 2px 4px; margin: -2px 0 -1px; }
+.row[data-status='idle'][aria-current] .row-name { color: #000; }
+.row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.row-l2 { display: flex; align-items: baseline; gap: 8px; }
+.row-act { flex: 0 1 auto; min-width: 0; }
+.row-where {
+  flex: 1 1 0; min-width: 0; text-align: right;
+  font: 10px/1.3 var(--mono); letter-spacing: 0.03em; text-transform: uppercase;
+  color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row[data-need='older'] .row-act { color: var(--need-deep); }
+.row[data-need='older'] .row-name { color: var(--grey); }
+.row[data-need='older'] .badge { opacity: 0.8; }
+
+/* Two lists in the column: NEEDS YOU (a fixed block, at most about five rows, scrolling inside if it ever
+   has more) and everyone else (the scroller). A row that joins NEEDS YOU can therefore never land under a
+   sticky header, and nothing above the scroller's rows grows while you read them. */
+.roster-lists { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.roster-need { flex: 0 1 auto; min-height: 26px; max-height: 262px; display: flex; flex-direction: column; }
+.roster-need .roster-group-head { position: static; flex: none; }
+.need-list { flex: 0 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; margin-right: -4px; padding-right: 4px; scrollbar-gutter: stable; }
+.roster-need.is-clear .roster-group-head { margin-bottom: 0; }
+.roster-scroll { flex: 1 1 0; min-height: max(92px, 40%); overflow-anchor: none; scroll-padding-top: 30px; scrollbar-gutter: stable; } /* the list keeps two fifths of the room whatever NEEDS YOU holds */
+.roster-need .row-flag { display: inline-block; } /* pinned rows show their group in both arrangements */
+/* joining and leaving NEEDS YOU: the row's height opens / folds in a few steps */
+.roster-item.is-sliding, .need-ghost { overflow: hidden; }
+
+/* NEEDS YOU: always first, always there */
+.roster-group.is-need .roster-group-head { color: var(--need); border-bottom-color: var(--need); }
+.roster-group.is-need .roster-group-count { color: var(--need); }
+.roster-group.is-need.is-clear .roster-group-head { color: var(--dim); border-bottom-color: var(--line); }
+.roster-group.is-need.is-clear .roster-group-count { color: var(--dim); }
+.rg-older { order: 9; flex: none; font: 700 10px/1 var(--mono); color: var(--need-deep); white-space: nowrap; } /* reads "2 +1 OLDER", like the top bar */
+
+/* section headers stay put while their rows scroll under them: you always know which list you are in.
+   The number is every member (like the chip in the bar and the sign in the office); "· 1 above" says that
+   some of them are listed under NEEDS YOU. */
+.roster-group-head { position: sticky; top: 0; z-index: 2; background: var(--ink); flex-wrap: wrap; }
+.rg-counts { flex: none; display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.rg-above { font: 10px/1 var(--mono); color: var(--dim); }
+.rg-name:focus-visible { outline-offset: 1px; }
+.roster-group-empty { padding: 4px 2px 2px; }
+
+/* the crew, folded: "+4 crew · 2/4 DONE" */
+.row-crew {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px 4px 6px;
+  font: 11px/1.3 var(--mono);
+  color: var(--grey);
+}
+.row-crew::before { display: none; }
+.crew-chev { color: var(--dim); }
+.row-crew[aria-expanded='true'] .crew-chev { transform: rotate(90deg); }
+.row-crew:hover .crew-chev { color: var(--paper); }
+.crew-done { color: var(--dim); }
+.crew-done::before, .crew-fail::before { content: '· '; color: var(--dim); }
+.crew-done.is-all { color: var(--go); }
+.crew-fail { color: var(--stop); }
+
+/* the tick box lives under the badge, in the second line's gutter: the badge never gives way to it */
+.row-check { left: 8px; top: 21px; width: 28px; height: 20px; }
+.row-check-box { width: 12px; height: 12px; }
+.roster-item:has(> .row:focus-visible) > .row-check { display: grid; }
+
+/* the one-click suggestion: one slim line, docked in the NO GROUP header (or at the end of the list) */
+.rg-sug { flex: 1 0 100%; min-width: 0; }
+.rg-sug:empty, .roster-sug-foot:empty { display: none; }
+.roster-sug-foot { margin-top: 10px; }
+.roster-sug { display: block; padding-top: 5px; }
+.roster-sug-foot .roster-sug { padding-top: 0; }
+.sug-line { display: flex; align-items: center; gap: 2px; }
+.sug-go {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: baseline; gap: 5px;
+  padding: 2px 5px;
+  font: 11px/1.4 var(--mono); text-align: left; white-space: nowrap;
+  color: var(--grey); background: none;
+  border: 1px dashed var(--line);
+}
+.sug-go:hover:not(:disabled) { color: var(--paper); border-color: var(--paper); border-style: solid; }
+.sug-go:disabled { opacity: 0.6; }
+.sug-plus { flex: none; font: 10px/1 var(--px); color: var(--paper); }
+.sug-word { flex: none; }
+.sug-name { flex: 0 1 auto; min-width: 0; font-weight: 700; color: var(--paper); overflow: hidden; text-overflow: ellipsis; }
+.sug-count { flex: none; color: var(--dim); }
+.sug-x { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; color: var(--dim); background: none; border: 0; }
+.sug-x:hover { color: var(--paper); }
+.sug-error { margin-top: 4px; font: 11px/1.35 var(--mono); white-space: normal; }
+.roster-tab-tasks.is-failed { color: var(--stop); }
+
+/* ================================================================== tasks tray */
+
+/* One line ("TASKS 2 · 1 FAILED ▸") unless something is running or you opened it; open, one line per task.
+   Details live in the OUTPUT panel, never in the tray. */
+#tasks { max-height: 30%; min-height: 0; padding-top: 8px; }
+.tasks-toggle { gap: 6px; white-space: nowrap; }
+.tasks-toggle .panel-title { flex: none; font-size: 10px; }
+.tasks-count { flex: none; font: 10px/1 var(--px); color: var(--grey); }
+.tasks-summary { flex: 0 1 auto; min-width: 0; margin-left: 0; margin-right: auto; overflow: hidden; text-overflow: ellipsis; }
+.tasks-chev { flex: none; }
+.tasks-summary.is-failed { color: var(--stop); }
+.tasks-failn { flex: none; margin-left: -4px; margin-right: auto; padding: 3px 2px 2px 4px; font: 10px/1 var(--px); color: #000; background: var(--stop); }
+.tasks-summary:has(+ .tasks-failn:not([hidden])) { margin-right: 4px; }
+.tasks-list { margin-top: 6px; }
+.task { position: relative; display: flex; align-items: center; gap: 4px; padding: 0; }
+.task::before { content: ''; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px; background: var(--tool, transparent); }
+.task-head {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 7px;
+  height: 28px; padding: 0 2px 0 9px;
+  color: var(--paper); text-align: left;
+  background: none; border: 0;
+}
+.task-head:hover { background: var(--ink-2); }
+.task-head:focus-visible { outline-offset: -2px; }
+/* the label comes first: it takes what there is, the elapsed time gives way before a single letter of it is cut */
+.task-gist { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-who {
+  flex: 0 0 auto; max-width: 42%;
+  font: 700 11px/1.2 var(--mono); color: var(--tool, var(--paper));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-time { flex: 0 1000 auto; min-width: 0; margin-left: 0; overflow: hidden; white-space: nowrap; font-size: 11px; color: var(--grey); }
+.task.is-finished .task-gist { color: var(--grey); }
+.task[data-status='failed'] .task-gist { color: var(--paper); }
+/* a finished task's duration: on hover / focus (and in the tooltip); a running one's stays, it is the news */
+.task.is-finished .task-time { display: none; }
+.task.is-finished:hover .task-time, .task.is-finished:focus-within .task-time { display: block; }
+.task:hover .task-time, .task:focus-within .task-time { flex-shrink: 0; } /* pointing at a row always shows how long it ran */
+.task.is-armed .task-gist { color: var(--stop); font-weight: 700; }
+.task-x { flex: none; border-color: var(--line); color: var(--grey); }
+.task-stop-ico { display: none; width: 8px; height: 8px; background: currentColor; }
+.task-x.is-stop { color: var(--stop); border-color: var(--stop); }
+.task-x.is-stop .task-x-ico { display: none; }
+.task-x.is-stop .task-stop-ico { display: block; }
+.task-x.is-stop:hover:not(:disabled), .task.is-armed .task-x.is-stop { color: #000; background: var(--stop); }
+.glyph[data-status='stopped']::before { content: ''; position: absolute; left: 2px; top: 2px; width: 6px; height: 6px; background: var(--dim); }
+.task-stop.is-armed { color: #000; background: var(--stop); }
+.tasks-clear { flex: none; align-self: flex-start; margin: 6px 0 0; border-color: var(--line); color: var(--grey); }
+.tasks-clear:hover:not(:disabled) { border-color: var(--paper); }
+
+/* a path that does not fit loses its beginning, not its folder name */
+.clip-start { direction: rtl; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-start > bdi { direction: ltr; unicode-bidi: isolate; }
+
+/* ================================================================== task output (the transcript's slot) */
+
+#taskout {
+  position: absolute;
+  top: var(--top);
+  right: var(--gap);
+  bottom: var(--bottom);
+  width: clamp(380px, 36vw, 560px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 10px 16px;
+  z-index: 4;
+  animation: slide-in 0.16s steps(4);
+}
+#taskout[data-tool] { --frame: var(--tool); }
+#taskout[data-status='failed'] { --frame: var(--stop); }
+.to-sub { margin-top: 8px; padding-bottom: 8px; border-bottom: 2px solid var(--line); font-size: 12px; }
+.to-line { display: flex; align-items: baseline; gap: 10px; }
+.to-status { font: 10px/1.2 var(--px); color: var(--grey); }
+#taskout[data-status='running'] .to-status, #taskout[data-status='starting'] .to-status { color: var(--go); }
+#taskout[data-status='failed'] .to-status { color: var(--stop); }
+.to-time { color: var(--grey); }
+.to-prompt { margin-top: 4px; color: var(--paper); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.to-cwd { margin-top: 3px; font-size: 11px; color: var(--dim); }
+.to-why { flex: none; margin-top: 8px; }
+.to-out {
+  flex: 1 1 auto; min-height: 0;
+  margin: 8px 0 0; padding: 8px 10px;
+  overflow: auto; overscroll-behavior: contain;
+  font: 12px/1.5 var(--mono);
+  color: var(--grey);
+  background: var(--ink-2);
+  border: 2px solid var(--line);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.to-out:focus-visible { outline-offset: -2px; }
+.to-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; font-size: 11px; color: var(--dim); }
+.to-note { flex: 1 1 auto; min-width: 0; }
+.to-actions { flex: none; display: inline-flex; gap: 6px; }
+
+/* ================================================================== toasts */
+
+/* The lane: bottom-right of the office view, just above the bottom box, left of any slide-over.
+   It covers a strip of floor; never the top bar, the room banners, the roster or a side panel. */
+#toasts {
+  bottom: calc(var(--bottom) + 6px);
+  right: calc(var(--inset-r) + 14px);
+  max-width: min(480px, calc(100vw - var(--inset-l) - var(--inset-r) - 28px));
+  gap: 10px;
+}
+@keyframes toast-in { from { transform: translateY(10px); opacity: 0; } }
+/* exclamations are white on black-and-white; yellow is for "needs you" */
+.toast-pow { color: #000; background: var(--paper); border: 3px solid #000; box-shadow: 0 0 0 3px var(--paper), 5px 5px 0 3px #000; }
+.toast-pow .toast-text { font-size: 14px; }
+@keyframes pow-in { from { transform: scale(0.6); opacity: 0; } }
+.toast-primary { color: #000; background: var(--paper); border-color: var(--paper); }
+.toast-primary:hover:not(:disabled) { background: #fff; color: #000; }
+.toast-card .toast-detail { overflow: hidden; text-overflow: ellipsis; }
+.toast-lines { max-height: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
+.toast-actions { flex-wrap: wrap; }
+.toast-card.is-compact { width: auto; min-width: 230px; max-width: 360px; }
+.toast-card.is-compact .toast-text { font-size: 12px; }
+/* one line with its buttons in it: "ZED  FAILED  [RETRY] [DETAILS] x" */
+.toast-line { align-items: center; gap: 10px; height: 34px; padding: 0 5px 0 12px; pointer-events: auto; }
+.toast-line .toast-text { font: 10px/1 var(--px); padding-top: 1px; color: var(--paper); }
+.toast-line .toast-detail { flex: none; font: 10px/1 var(--px); padding-top: 1px; color: var(--stop); }
+.toast-line .toast-actions { flex: none; flex-wrap: nowrap; gap: 6px; margin: 0 0 0 2px; }
+.toast-line .toast-x { flex: none; border-color: var(--line); color: var(--grey); }
+/* the one needs-you call-out: only when the bar, the roster, the sound and the "!" could not do the job */
+.toast-needs {
+  align-items: center; gap: 10px;
+  height: 38px; padding: 0 6px 0 12px;
+  color: #000; background: var(--need);
+  border: 2px solid #000;
+  box-shadow: 0 0 0 2px var(--need), 4px 4px 0 2px #000;
+  pointer-events: auto;
+}
+.toast-needs .toast-text { font: 10px/1 var(--px); padding-top: 1px; }
+.toast-needs .toast-detail { color: #000; font-weight: 700; }
+.toast-bang { flex: none; font: 14px/1 var(--px); }
+.toast-go { flex: none; color: var(--need); background: #000; border-color: #000; }
+.toast-go:hover:not(:disabled) { color: #000; background: #fff3b0; }
+.toast-needs .toast-x { flex: none; color: #000; background: none; border-color: #000; }
+.toast-needs .toast-x:hover:not(:disabled) { color: var(--need); background: #000; }
+/* quiet: somebody off screen. A dark line with a yellow "!" — the yellow slab is kept for the summary when you come back */
+.toast-needs.is-quiet { height: 32px; color: var(--paper); background: var(--ink); border-color: var(--need); box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.6); }
+.toast-needs.is-quiet .toast-bang { color: var(--need); }
+.toast-needs.is-quiet .toast-detail { color: var(--dim); font-weight: 400; }
+.toast-needs.is-quiet .toast-go { color: #000; background: var(--need); border-color: var(--need); }
+.toast-needs.is-quiet .toast-x { color: var(--grey); border-color: var(--line); }
+.toast-needs.is-quiet .toast-x:hover:not(:disabled) { color: #000; background: var(--paper); }
+
+/* ================================================================== office log: the ALL ACTIVITY switch + whole rows */
+
+.dlg-log-side { width: 152px; }
+.log-filter { gap: 6px; padding: 5px 6px 4px; border-color: var(--line); color: var(--grey); }
+.log-filter:hover:not(:disabled) { border-color: var(--paper); }
+.log-filter-box { flex: none; width: 10px; height: 10px; border: 2px solid currentColor; }
+.log-filter[aria-checked='true'] { color: var(--paper); border-color: var(--paper); }
+.log-filter[aria-checked='true'] .log-filter-box { background: currentColor; box-shadow: inset 0 0 0 2px var(--ink); }
+/* ten whole rows (eight on a short window): the list is a multiple of the row height, so nothing is cut in half */
+#dialogue[data-mode='log'] { --log-row: 22px; --log-rows: 10; height: calc(var(--log-row) * var(--log-rows) + 34px); }
+#dialogue[data-mode='log'] .dlg-log { height: calc(var(--log-row) * var(--log-rows)); }
+.dlg-log-list .log-row { height: var(--log-row, 22px); padding: 0 4px; line-height: var(--log-row, 22px); align-items: center; }
+.dlg-log-list { scroll-snap-type: y proximity; }
+.dlg-log-list > li { scroll-snap-align: start; }
+.log-row[data-kind='act'] .log-text, .log-row[data-kind='work'] .log-text, .log-row[data-kind='idle'] .log-text { color: var(--dim); }
+
+/* the ticker: the event line takes what is left, the key hints keep their own width, so a long event never
+   shoves the hints sideways */
+.dlg-tick .tick-main { flex: 1 1 0; min-width: 0; }
+.dlg-tick .dlg-hint { flex: 0 1 auto; max-width: 50%; }
+
+/* ================================================================== NEW TASK: nothing moves */
+
+.modal-newtask { width: min(900px, 100%); }
+.nt-row { grid-template-columns: 116px minmax(0, 1fr); }
+.nt-adv-body { grid-template-columns: 116px minmax(0, 300px) minmax(0, 1fr); row-gap: 4px; }
+.nt-adv-error { grid-column: 2 / -1; margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+/* errors have their own reserved places */
+.nt-what { position: relative; }
+.nt-prompt-error { position: absolute; left: 14px; bottom: 12px; margin: 0; padding: 0 6px; background: var(--ink); pointer-events: none; }
+.nt-under { height: 22px; margin-top: 6px; overflow: hidden; }
+.nt-under .nt-quick { margin-top: 0; }
+.nt-cwd-error { margin: 0; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* permissions: the blurb and the tool's note each keep two lines, whatever they say */
+.nt-row-rope .perm-picker { grid-template-columns: minmax(0, 414px) minmax(0, 1fr); align-items: start; }
+.nt-row-rope .perm { gap: 6px; padding: 9px 4px 8px; } /* "EDIT FILES" keeps clear of its border */
+/* GROUP is as wide whatever it says, so NAME never changes width */
+.nt-group { width: 236px; max-width: 236px; justify-content: flex-start; }
+.nt-group-name { flex: 1 1 auto; text-align: left; white-space: nowrap; }
+.nt-group-note { flex: none; }
+.nt-group .ico-down { flex: none; margin-left: auto; }
+.nt-row-rope .perm-radios { grid-row: auto; }
+.perm-text { min-width: 0; }
+.nt-row-rope .perm-blurb, .nt-row-rope .perm-note {
+  margin-top: 0; min-height: 0; height: 2.7em; line-height: 1.35;
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.nt-row-rope .perm-note { margin-top: 2px; }
+.perm-note.is-empty { visibility: hidden; }
+.perm-blurb.is-warning::before { padding: 2px 2px 1px 5px; }
+/* footer: one message at a time, in a slot that is always there (tall enough for the two-line sign-in hint) */
+.modal-newtask .modal-foot { align-items: center; }
+.nt-footmsg { height: 54px; justify-content: center; overflow: hidden; }
+.nt-footmsg .form-error { max-height: 48px; padding: 5px 10px; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.nt-signin { padding: 3px 8px; max-height: 54px; }
+.nt-signin .signin-body { gap: 2px 8px; }
+.nt-signin .login-hint { flex-wrap: nowrap; white-space: nowrap; }
+
+/* folder browser: where you are is inverted, where the pointer is is shaded; and more of both lists */
+.pop-folders .nt-recent-list { max-height: 330px; }
+.pop-folders .nt-dir-list { height: 270px; }
+.nt-recent[aria-current], .pop .nt-recent[aria-current], .modal .nt-recent[aria-current] { color: #000; background: var(--paper); }
+.nt-recent[aria-current] .nt-recent-path { color: #33334a; }
+.nt-recent[aria-current] .menu-cursor { color: #000; }
+.nt-recent[aria-current]:hover { background: #fff; }
+.nt-recent:not([aria-current]):hover, .nt-dir:hover { background: var(--ink-3); }
+.nt-dir:hover .ico-folder { color: var(--paper); }
+.crumb[aria-current] { color: #000; background: var(--paper); }
+
+/* ================================================================== sound menu */
+
+.pop-sound { width: 340px; }
+.snd-levels { flex-direction: column; gap: 2px; }
+.snd-level { display: grid; grid-template-columns: 10px 84px minmax(0, 1fr); align-items: baseline; column-gap: 8px; padding: 7px 6px 6px 2px; }
+.snd-level-name { font: 10px/1.3 var(--px); }
+.snd-level-blurb { font: 12px/1.35 var(--mono); color: var(--grey); white-space: normal; }
+.snd-level[aria-checked='true'] { background: var(--paper); color: #000; }
+.snd-level[aria-checked='true'] .snd-level-blurb { color: #22223a; }
+.snd-level[aria-checked='true'] .menu-cursor { color: #000; visibility: visible; }
+.pop .snd-level[aria-checked='true']:hover { background: #fff; color: #000; }
+.snd-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 2px solid var(--line); }
+.snd-row-label { font: 10px/1 var(--px); color: var(--grey); }
+.snd-vols { gap: 4px; align-items: flex-end; }
+.snd-vol { display: inline-flex; align-items: flex-end; justify-content: center; width: 22px; height: 26px; padding: 3px; background: var(--ink); border: 2px solid var(--line); }
+.snd-vol-bar { width: 8px; height: calc(4px * var(--n)); background: var(--line); }
+.snd-vol[data-on] .snd-vol-bar { background: var(--paper); }
+.snd-vol[aria-checked='true'] { border-color: var(--paper); }
+.snd-vol:hover:not(:disabled) { border-color: var(--grey); }
+.snd-vol:disabled { opacity: 0.5; }
+.snd-test { margin-left: auto; }
+.snd-test-note { display: block; min-height: 1.45em; margin-top: 8px; font-size: 12px; line-height: 1.45; color: var(--grey); }
+.snd-test-note[hidden] { display: block !important; visibility: hidden; } /* its line is always there: TEST never moves the menu */
+
+/* ================================================================== group editor + GROUPS menu */
+
+.ge-order-note { padding-top: 6px; margin-bottom: 0; }
+/* "GROUP ALL 2 IN customer-ui": the whole offer, on two lines if it has to */
+.gm-suggest { align-items: flex-start; }
+.gm-suggest .menu-label { white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.5; text-transform: none; }
+.gm-suggest .menu-cursor { margin-top: 3px; }
+.gm-item[aria-current] .menu-label::after { color: var(--go); }
+
+/* ================================================================== help: three columns, the office's own pictures */
+
+.modal-help { width: min(1080px, 100%); }
+.help-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+.help-keys kbd { white-space: nowrap; }
+.help-older { color: var(--need-deep); border-style: dotted; }
+.help-pics { gap: 5px; }
+.help-pics + .help-pics { margin-top: 10px; padding-top: 10px; border-top: 2px solid var(--line); }
+.help-pic { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; }
+.help-pic:empty::before { content: ''; width: 8px; height: 8px; background: var(--line); }
+.help-sprite { display: block; image-rendering: pixelated; }
+.help-tools { display: flex; flex-wrap: wrap; gap: 6px 14px; } /* the three tools on one line */
+.help-tools li { gap: 6px; }
+.help-bubbles { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; } /* the eight bubbles, two abreast */
+.help-wide { grid-column: 1 / -1; padding-top: 12px; border-top: 2px solid var(--line); }
+.help-wide .nt-label { margin-bottom: 8px; }
+.help-colours { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 24px; }
+.help-grid { row-gap: 14px; }
+.modal-help .help-keys { gap: 5px 14px; }
+.modal-help .help-legend { gap: 7px; }
+.modal-help .help-gap { margin-top: 14px; }
+.help-colours b { color: var(--paper); font-weight: 700; }
+.help-swatch { flex: none; width: 22px; height: 14px; }
+.help-swatch[data-c='need'] { background: var(--need); }
+.help-swatch[data-c='select'] { background: var(--ink-3); box-shadow: inset 6px 0 0 var(--paper), inset -6px 0 0 var(--paper); }
+.help-swatch[data-c='focus'] { box-shadow: inset 0 0 0 2px var(--paper); }
+.help-swatch[data-c='tools'] { background: linear-gradient(90deg, var(--claude) 0 33%, var(--codex) 33% 66%, var(--cursor) 66%); }
+.help-swatch[data-c='group'] { background: linear-gradient(90deg, #f0609c 0 33%, #30c0e0 33% 66%, #8cc828 66%); clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 60%, 20% 60%, 20% 100%, 0 100%); }
+.help-swatch[data-c='fail'] { background: var(--stop); }
+.help-note { margin-top: 14px; }
+
+/* ================================================================== small screens of the supported range */
+
+@media (max-width: 1239px) {
+  .help-grid { gap: 18px; }
+  .help-legend-text { font-size: 11px; }
+}
+@media (max-height: 759px) {
+  .modal-backdrop:has(.modal-help) { padding-top: 16px; } /* the sheet gets the whole height: it fits at 1100x700 without scrolling */
+  #dialogue[data-mode='log'] { --log-rows: 8; }
+  .modal-newtask .modal-body { gap: 10px; }
+  .modal-newtask .nt-rows { gap: 8px; }
+  .modal-newtask .nt-what .nt-prompt { height: 96px; }
+  .modal-help .help-keys { gap: 2px 12px; }
+  .modal-help .help-keys dd, .modal-help .help-text { font-size: 12px; }
+  .modal-help .help-legend { gap: 4px; }
+  .help-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.95fr); row-gap: 10px; }
+  .help-note { display: none; }
+  .pop-folders .nt-dir-list { height: 200px; }
+  .pop-folders .nt-recent-list { max-height: 260px; }
+  .help-pics { gap: 3px; }
+  .help-gap { margin-top: 12px; }
+  .help-legend { gap: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-need.is-hot.is-new { animation: none !important; }
+}

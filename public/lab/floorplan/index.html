@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office · Floor Plan</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="app">
+  <main id="map" aria-label="Office floor plan">
+    <canvas id="floor"></canvas>
+    <div id="tip" hidden></div>
+    <div id="toast" hidden></div>
+  </main>
+  <aside id="panel" aria-label="Inspector">
+    <header id="phead">
+      <div class="brand">
+        <span class="t">AGENT OFFICE</span>
+        <span id="mode" class="chip">...</span>
+      </div>
+      <div class="hrow">
+        <button id="newtask" class="btn primary" type="button"><span class="plus">+</span> NEW TASK</button>
+        <button id="alert" class="btn alert" type="button" hidden title="Jump to the next agent that needs you (Space)"><span class="bang">!</span> <span id="alertn">0</span> NEED YOU</button>
+      </div>
+    </header>
+    <section id="pbody"></section>
+    <footer id="pfoot">CLICK AN AGENT · <b>N</b> NEW TASK · <b>SPACE</b> NEXT WHO NEEDS YOU · <b>ESC</b> BACK</footer>
+  </aside>
+  <div id="modal" hidden></div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent-office",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.mjs"],
+      "port": 4477
+    },
+    {
+      "name": "agent-office-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.mjs", "--mock", "--port", "4476"],
+      "port": 4476
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office — CCTV Wall</title>
+<link rel="stylesheet" href="./cctv.css">
+</head>
+<body>
+<header id="hdr">
+  <div class="brand"><span class="lens" aria-hidden="true"></span><span class="brand-t">AGENT OFFICE</span><span class="brand-s">— SECURITY</span></div>
+  <div class="counts total" aria-label="Agents on site"><span class="cnt"><b id="n-total">0</b> <span id="l-total">AGENTS</span></span><span class="cnt crewc" id="crewcount" title="Subagents working for an orchestrator right now" hidden>+ <b id="n-crew">0</b> <span>CREW</span></span></div>
+  <div class="counts" id="toolcounts" aria-label="Agents per tool"></div>
+  <div class="counts" id="statcounts" aria-label="Agents per status">
+    <span class="cnt st-working"><i></i><span>WORKING</span> <b id="n-working">0</b></span>
+    <button class="cnt st-waiting" id="needs" type="button" title="Cycle through the agents waiting for you (W)"><i></i><span>NEEDS YOU:</span> <b id="n-waiting">0</b></button>
+    <span class="cnt st-idle"><i></i><span>IDLE</span> <b id="n-idle">0</b></span>
+  </div>
+  <div class="sp"></div>
+  <div class="keys" aria-hidden="true">ARROWS MOVE · ENTER VIEW · ESC WALL</div>
+  <div id="mode" class="mode">CONNECTING</div>
+  <div id="clock" class="clock">--:--:--</div>
+  <button id="dispatch" type="button" class="btn hot">DISPATCH <kbd>N</kbd></button>
+</header>
+
+<main id="main">
+  <section id="stage" aria-label="Main monitor">
+    <div class="bigmon" id="bigmon">
+      <div class="pic" id="bigpic">
+        <canvas id="bigcanvas"></canvas>
+        <div class="crt"></div>
+        <div class="ov tl"><span class="mm">MAIN</span><span class="cam" id="big-cam"></span><span class="nm" id="big-name"></span><span class="badge" id="big-badge"></span></div>
+        <div class="ov tr"><span class="rec" id="big-rec">REC</span></div>
+        <div class="ov bot"><span class="where" id="big-where"></span><span class="age" id="big-age"></span></div>
+        <div class="stamp">NEEDS YOU</div>
+      </div>
+      <div class="cap"><canvas class="capic" id="big-ic" width="7" height="7"></canvas><span class="captext" id="big-cap"></span></div>
+    </div>
+    <div class="console" id="console">
+      <!-- pinned: who this is -->
+      <div class="c-head">
+        <div class="c-id">
+          <canvas id="portrait" width="30" height="30" aria-hidden="true"></canvas>
+          <div class="c-idtext">
+            <div class="c-name"><span id="c-name"></span><span class="badge" id="c-badge"></span><span class="chip" id="c-status"></span></div>
+            <div class="c-row"><label>LOCATION</label><span id="c-where"></span></div>
+            <div class="c-row"><label>MODEL</label><span id="c-model"></span></div>
+            <div class="c-row"><label>ACTIVITY</label><span id="c-act"></span></div>
+            <div class="c-row"><label>LAST SEEN</label><span id="c-age"></span></div>
+          </div>
+        </div>
+        <div class="c-block c-assign"><label>ASSIGNMENT</label><div id="c-title"></div></div>
+      </div>
+      <!-- the only part that scrolls: what it said, and its crew -->
+      <div class="c-scroll" id="c-scroll" tabindex="0" aria-label="Last transmission and crew">
+        <div class="c-block"><label>LAST TRANSMISSION</label><div id="c-msg" class="typed"></div></div>
+        <div class="c-crew" id="c-crewbox" hidden>
+          <label>CREW <span id="c-crewcount"></span></label>
+          <ul id="c-crew"></ul>
+          <div id="c-subdetail"><canvas id="subportrait" width="30" height="30" aria-hidden="true"></canvas><div id="c-subtext"></div></div>
+        </div>
+      </div>
+      <!-- pinned: what you can do -->
+      <div class="c-actions">
+        <div class="c-buttons">
+          <button type="button" class="btn" id="b-transcript">TRANSCRIPT <kbd>T</kbd></button>
+          <button type="button" class="btn intercom" id="b-page"><span class="spk" aria-hidden="true"></span>PAGE AGENT <kbd>P</kbd></button>
+          <button type="button" class="btn danger" id="b-stop" hidden>STOP TASK</button>
+          <button type="button" class="btn ghost" id="b-close">WALL <kbd>ESC</kbd></button>
+        </div>
+        <form id="pageform" class="intercom-panel" hidden>
+          <div class="ic-head"><span class="spk" aria-hidden="true"></span><span>INTERCOM TO</span> <b id="page-to"></b><span class="ic-led" aria-hidden="true"></span></div>
+          <textarea id="page-text" rows="2" placeholder="Speak to the agent…" aria-label="Message to the agent"></textarea>
+          <div class="ic-foot">
+            <span id="page-note" class="note"></span>
+            <button type="button" class="btn ghost" id="page-cancel">CANCEL</button>
+            <button type="submit" class="btn hot" id="page-send">TRANSMIT</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section id="wall" aria-label="Camera wall">
+    <div id="grid"></div>
+    <div id="empty" hidden>
+      <div class="empty-box">
+        <div class="empty-k"><span class="lens" aria-hidden="true"></span>NIGHT WATCH</div>
+        <div class="empty-t">ALL QUIET</div>
+        <div class="empty-s">No agents on site. Every monitor is free.<br>Start a Claude, Codex or Cursor task and its feed comes up here.</div>
+        <button type="button" class="btn hot big" id="empty-dispatch">DISPATCH AN AGENT <kbd>N</kbd></button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="ov-transcript" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="tr-title">
+    <div class="panel-h"><span id="tr-title">TRANSCRIPT</span><span class="panel-sub" id="tr-sub"></span><button type="button" class="btn ghost" id="tr-close">CLOSE <kbd>ESC</kbd></button></div>
+    <div class="tr-list" id="tr-list" tabindex="0"></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-dispatch" hidden>
+  <form class="panel dispatch" id="dispatch-form" role="dialog" aria-modal="true" aria-labelledby="dp-title">
+    <div class="panel-h"><span id="dp-title">DISPATCH</span><span class="panel-sub">send a new agent into the office</span><button type="button" class="btn ghost" id="dp-close">CLOSE <kbd>ESC</kbd></button></div>
+    <div class="dp-body">
+      <div class="field">
+        <label>UNIT</label>
+        <div class="seg" id="dp-tools" role="radiogroup" aria-label="Tool"></div>
+      </div>
+      <div class="field">
+        <label for="dp-cwd">FOLDER</label>
+        <input id="dp-cwd" type="text" spellcheck="false" autocomplete="off" placeholder="/absolute/path/to/project">
+        <div class="dirs" id="dp-dirs"></div>
+      </div>
+      <div class="field">
+        <label>CLEARANCE</label>
+        <div class="seg" id="dp-perm" role="radiogroup" aria-label="Permission">
+          <button type="button" role="radio" data-v="read">READ ONLY</button>
+          <button type="button" role="radio" data-v="edit">EDIT FILES</button>
+          <button type="button" role="radio" data-v="full">FULL AUTO</button>
+        </div>
+        <div class="warn" id="dp-warn" hidden>FULL AUTO runs with no permission prompts at all. The agent can run any command in this folder.</div>
+      </div>
+      <div class="field">
+        <label for="dp-prompt">ORDERS</label>
+        <textarea id="dp-prompt" rows="4" placeholder="What should the agent do?"></textarea>
+      </div>
+      <div class="dp-foot">
+        <span class="note" id="dp-note"></span>
+        <button type="submit" class="btn hot big" id="dp-start">START</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
